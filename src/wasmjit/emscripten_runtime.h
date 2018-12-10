@@ -39,6 +39,25 @@ enum {
 	WASMJIT_EMSCRIPTEN_TOTAL_MEMORY = 16777216,
 };
 
+typedef uint32_t em_funcptr;
+typedef int32_t em_int;
+typedef uint32_t em_ulong;
+typedef int32_t em_long;
+
+typedef struct { em_ulong __bits[128 / sizeof(em_long)]; } em_sigset_t;
+
+union em_sigaction_handler {
+	em_funcptr em_sa_handler;
+	em_funcptr em_sa_sigaction;
+};
+
+struct em_sigaction {
+        union em_sigaction_handler __sa_handler;
+        em_sigset_t sa_mask;
+        em_int sa_flags;
+        em_funcptr sa_restorer;
+};
+
 struct EmFILE {
 };
 
@@ -46,7 +65,13 @@ struct EmFile {
 	DIR *dirp;
 };
 
+struct EmSem {
+	uint32_t user_addr;
+	sem_t *real_sem;
+};
+
 struct EmscriptenContext {
+	struct ModuleInst *asm_;
 	struct FuncInst *errno_location_inst;
 	char **environ;
 	int buildEnvironmentCalled;
@@ -54,11 +79,20 @@ struct EmscriptenContext {
 	struct FuncInst *free_inst;
 	DEFINE_ANON_VECTOR(struct EmFile *) fd_table;
 	/* NB: only used in kernel */
-	struct EmFILE *grp_file;
 	uint32_t gai_strerror_buffer;
 	uint32_t getenv_buffer;
 	uint32_t getgrent_buffer;
 	uint32_t getpwent_buffer;
+	uint32_t tmzone_buffer;
+	uint32_t *LLVM_SAVEDSTACKS;
+	size_t LLVM_SAVEDSTACKS_sz;
+	uint32_t tmtm_buffer;
+	DEFINE_ANON_VECTOR(struct EmSem) sem_table;
+	struct {
+		int is_sigaction;
+		union em_sigaction_handler handler;
+	} sig_handlers[sizeof(em_sigset_t) * CHAR_BIT];
+	DEFINE_ANON_VECTOR(void *) unfreed_pointers;
 };
 
 #define CTYPE_VALTYPE_I32 uint32_t
@@ -134,6 +168,7 @@ struct MemInst *wasmjit_emscripten_get_mem_inst(struct FuncInst *funcinst);
 
 
 int wasmjit_emscripten_init(struct EmscriptenContext *ctx,
+			    struct ModuleInst *asm_,
 			    struct FuncInst *errno_location_inst,
 			    struct FuncInst *malloc_inst,
 			    struct FuncInst *free_inst,
@@ -148,6 +183,8 @@ int wasmjit_emscripten_invoke_main(struct MemInst *meminst,
 				   char *argv[]);
 
 struct WasmJITEmscriptenMemoryGlobals {
+	uint32_t __memory_base;
+	uint32_t __table_base;
 	uint32_t memoryBase;
 	uint32_t tempDoublePtr;
 	uint32_t DYNAMICTOP_PTR;

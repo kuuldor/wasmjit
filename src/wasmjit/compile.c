@@ -130,6 +130,13 @@ static void encode_le_uint32_t(uint32_t val, char *buf)
 	}						   \
 	while (0)
 
+#define OUTSN(str, n)					   \
+	do {						   \
+		if (!output_buf(output, str, n))	   \
+			goto error;			   \
+	}						   \
+	while (0)
+
 #define OUTB(b)						   \
 	do {						   \
 		signed char __b;				\
@@ -1822,7 +1829,8 @@ static int wasmjit_compile_instruction(const struct FuncType *func_types,
 		break;
 	}
 	case OPCODE_F64_EQ:
-	case OPCODE_F64_NE: {
+	case OPCODE_F64_NE:
+	case OPCODE_F64_LT: {
 		assert(peek_stack(sstack) == STACK_F64);
 		pop_stack(sstack);
 
@@ -1846,10 +1854,19 @@ static int wasmjit_compile_instruction(const struct FuncType *func_types,
 			OUTS("\xba\x01");
 			OUTB(0); OUTB(0); OUTB(0);
 			break;
+		case OPCODE_F64_LT:
+			break;
+		default:
+			assert(0);
+			__builtin_unreachable();
+			break;
 		}
 
 		/* ucomisd (%rsp), %xmm0 */
 		OUTS("\x66\x0f\x2e\x04\x24");
+
+		/* NB: since we put the second operator
+		   first, we need to test the opposite operation */
 
 		switch (instruction->opcode) {
 		case OPCODE_F64_EQ:
@@ -1863,6 +1880,10 @@ static int wasmjit_compile_instruction(const struct FuncType *func_types,
 			OUTS("\x0f\x9a\xc0");
 			/* cmovne %edx, %eax */
 			OUTS("\x0f\x45\xc2");
+			break;
+		case OPCODE_F64_LT:
+			/* seta %al */
+			OUTS("\x0f\x97\xc0");
 			break;
 		}
 
@@ -2179,6 +2200,66 @@ static int wasmjit_compile_instruction(const struct FuncType *func_types,
 		if (!push_stack(sstack, STACK_I64))
 			goto error;
 		break;
+	case OPCODE_I64_TRUNC_S_F64:
+	case OPCODE_I64_TRUNC_U_F64:
+		assert(peek_stack(sstack) == STACK_F64);
+		pop_stack(sstack);
+
+		switch (instruction->opcode) {
+		case OPCODE_I64_TRUNC_S_F64:
+			/* cvttsd2si (%rsp),%rax */
+			OUTS("\xf2\x48\x0f\x2c\x04\x24");
+			break;
+		case OPCODE_I64_TRUNC_U_F64:
+			/* NB: this is INT64_MAX + 1 in double form */
+			/* mov $0x43e0000000000000, %rax */
+			OUTSN("\x48\xb8\x00\x00\x00\x00\x00\x00\xe0\x43", 10);
+
+			/* movq %rax, %xmm1 */
+			OUTS("\x66\x48\x0f\x6e\xc8");
+
+			/* movsd (%rsp), %xmm0 */
+			OUTS("\xf2\x0f\x10\x04\x24");
+
+			/* ucomisd %xmm1, %xmm0 */
+			OUTS("\x66\x0f\x2e\xc1");
+
+			/* jae after1: */
+			OUTS("\x73");
+			OUTB(5 + 2);
+
+			/* cvttsd2si %xmm0, %rax */
+			OUTS("\xf2\x48\x0f\x2c\xc0");
+
+			/* jmp after2 */
+			OUTS("\xeb");
+			OUTB(4 + 5 + 5);
+
+			/* after1: */
+			/* subsd %xmm1, %xmm0 */
+			OUTS("\xf2\x0f\x5c\xc1");
+
+			/* cvttsd2si %xmm0, %rax */
+			OUTS("\xf2\x48\x0f\x2c\xc0");
+
+			/* btc $0x3f, %rax */
+			OUTS("\x48\x0f\xba\xf8\x3f");
+
+			/* after2: */
+			break;
+		default:
+			assert(0);
+			__builtin_unreachable();
+			break;
+		}
+
+		/* mov %rax, (%rsp) */
+		OUTS("\x48\x89\x04\x24");
+
+		if (!push_stack(sstack, STACK_I64))
+			goto error;
+
+		break;
 	case OPCODE_F64_CONVERT_S_I32:
 	case OPCODE_F64_CONVERT_U_I32:
 		assert(peek_stack(sstack) == STACK_I32);
@@ -2203,6 +2284,20 @@ static int wasmjit_compile_instruction(const struct FuncType *func_types,
 		if (!push_stack(sstack, STACK_F64))
 			goto error;
 		break;
+	case OPCODE_F64_CONVERT_S_I64: {
+		assert(peek_stack(sstack) == STACK_I64);
+		pop_stack(sstack);
+
+		/* cvtsi2sdq (%rsp),%xmm0 */
+		OUTS("\xf2\x48\x0f\x2a\x04\x24");
+
+		/* movsd %xmm0,(%rsp) */
+		OUTS("\xf2\x0f\x11\x04\x24");
+
+		if (!push_stack(sstack, STACK_F64))
+			goto error;
+		break;
+	}
 	case OPCODE_F64_PROMOTE_F32:
 		assert(peek_stack(sstack) == STACK_F32);
 		pop_stack(sstack);

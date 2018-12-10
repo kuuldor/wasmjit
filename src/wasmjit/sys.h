@@ -44,6 +44,8 @@ extern "C" {
 
 #define OFF (sizeof(size_t) * 2)
 
+extern int errno;
+
 __attribute__((unused))
 static void *malloc(size_t size)
 {
@@ -58,8 +60,10 @@ static void *malloc(size_t size)
 	}
 
 	ret = kvmalloc(cap, GFP_KERNEL);
-	if (!ret)
+	if (!ret) {
+		errno = ENOMEM;
 		return NULL;
+	}
 	memcpy(ret, &cap, sizeof(cap));
 	memcpy(ret + sizeof(cap), &size, sizeof(size));
 	return &ret[OFF];
@@ -78,6 +82,7 @@ static void *calloc(size_t nmemb, size_t elt_size)
 	char *ret;
 	size_t size, cap;
 	if (__builtin_umull_overflow(nmemb, elt_size, &size)) {
+		errno = ENOMEM;
 		return NULL;
 	}
 
@@ -90,8 +95,10 @@ static void *calloc(size_t nmemb, size_t elt_size)
 	}
 
 	ret = kvzalloc(cap, GFP_KERNEL);
-	if (!ret)
+	if (!ret) {
+		errno = ENOMEM;
 		return NULL;
+	}
 
 	memcpy(ret, &cap, sizeof(cap));
 	memcpy(ret + sizeof(cap), &size, sizeof(size));
@@ -192,7 +199,16 @@ typedef struct __jmp_buf_tag {
 int setjmp(jmp_buf);
 void longjmp(jmp_buf, int) __attribute__((noreturn));
 
+typedef jmp_buf wasmjit_thread_state;
+#define wasmjit_save_thread_state(s) setjmp((s))
+#define wasmjit_restore_thread_state(s, d) longjmp((s), (d))
+
 #define getpagesize() PAGE_SIZE
+
+/* Kernel doesn't define this */
+#define CHAR_BIT 8
+
+typedef int sig_atomic_t;
 
 #ifdef __cplusplus
 }
@@ -213,6 +229,10 @@ void longjmp(jmp_buf, int) __attribute__((noreturn));
 #include <limits.h>
 #include <grp.h>
 #include <pwd.h>
+
+typedef sigjmp_buf wasmjit_thread_state;
+#define wasmjit_save_thread_state(s) sigsetjmp((s), 1)
+#define wasmjit_restore_thread_state(s, d) siglongjmp((s), (d))
 
 #endif
 

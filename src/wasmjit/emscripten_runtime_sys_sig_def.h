@@ -1,5 +1,3 @@
-/* -*-mode:c; tab-width: 8; indent-tabs-mode: t; c-basic-offset: 8 -*- */
-
 /*
   Copyright (c) 2018 Rian Hunter et. al, see AUTHORS file.
 
@@ -22,45 +20,42 @@
   SOFTWARE.
  */
 
-#ifndef __KWASMJIT__KTLS_H
-#define __KWASMJIT__KTLS_H
-
-#ifndef __KERNEL__
-#error Only for kernel
+SIG(HUP, 1)
+SIG(INT, 2)
+SIG(QUIT, 3)
+SIG(ILL, 4)
+SIG(TRAP, 5)
+SIG(ABRT, 6)
+SIG(BUS, 7)
+SIG(FPE, 8)
+SIG(KILL, 9)
+SIG(USR1, 10)
+SIG(SEGV, 11)
+SIG(USR2, 12)
+SIG(PIPE, 13)
+SIG(ALRM, 14)
+SIG(TERM, 15)
+#ifdef SIGSTKFLT
+SIG(STKFLT, 16)
 #endif
-
-#include <linux/sched/task_stack.h>
-
-#ifdef __cplusplus
-extern "C" {
+SIG(CHLD, 17)
+SIG(CONT, 18)
+SIG(STOP, 19)
+SIG(TSTP, 20)
+SIG(TTIN, 21)
+SIG(TTOU, 22)
+SIG(URG, 23)
+SIG(XCPU, 24)
+SIG(XFSZ, 25)
+SIG(VTALRM, 26)
+SIG(PROF, 27)
+SIG(WINCH, 28)
+#if defined(SIGPOLL)
+SIG(POLL, 29)
+#elif defined(SIGIO)
+SIG(IO, 29)
 #endif
-
-struct KernelThreadLocal {
-	wasmjit_thread_state *jmp_buf;
-	void *stack_top;
-	struct pt_regs regs;
-	struct MemInst *mem_inst;
-};
-
-static inline char *ptrptr(void) {
-	/* NB: use space below entry of kernel stack for our thread local info
-	   if task_pt_regs(current) does not point to the bottom of the stack,
-	   this will fail very badly. wasmjit_high_emscripten_invoke_main always
-	   restores the original value before returning, so while we in the system
-	   call it should be safe to reappropriate this space.
-	 */
-	return (char *)task_pt_regs(current) - sizeof(struct ThreadLocal *);
-}
-
-static inline struct KernelThreadLocal *wasmjit_get_ktls(void)
-{
-	struct KernelThreadLocal *toret;
-	memcpy(&toret, ptrptr(), sizeof(toret));
-	return toret;
-}
-
-#ifdef __cplusplus
-}
+#ifdef SIGPWR
+SIG(PWR, 30)
 #endif
-
-#endif
+SIG(SYS, 31)

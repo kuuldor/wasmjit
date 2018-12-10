@@ -209,8 +209,8 @@ int wasmjit_mark_code_segment_executable(void *code, size_t code_size);
 int wasmjit_unmap_code_segment(void *code, size_t code_size);
 
 int wasmjit_set_stack_top(void *stack_top);
-int wasmjit_set_jmp_buf(jmp_buf *jmpbuf);
-jmp_buf *wasmjit_get_jmp_buf(void);
+int wasmjit_set_jmp_buf(wasmjit_thread_state *jmpbuf);
+wasmjit_thread_state *wasmjit_get_jmp_buf(void);
 
 union ExportPtr wasmjit_get_export(const struct ModuleInst *, const char *name, wasmjit_desc_t type);
 
@@ -224,16 +224,30 @@ int wasmjit_invoke_function(struct FuncInst *funcinst,
 			    union ValueUnion *values,
 			    union ValueUnion *out);
 
-#define WASMJIT_CHECK_RANGE_SANITIZE(toret, cond, index)		\
-	do {								\
-		*(toret) = (cond);					\
-		/* NB: don't assume toret's value,			\
-		   forces actual computation of mask */			\
-		__asm__ ("" : "=r" (*(toret)) : "0" (*(toret)));	\
-		*(index) &= ((*(index) - *(index)) - *(toret));		\
-		/* prevent moving masking of index after conditional on toret */ \
-		__asm__ ("" : "=r" (*(toret)) : "0" (*(toret)));	\
-	} while (0)
+
+/* This makes sure the index used in a mis-speculated successful
+    bounds check block either stalls execution or doesn't exceed bounds */
+__attribute__((unused))
+static size_t wasmjit_array_index_nospec(size_t index, size_t extent, size_t size)
+{
+	size_t end, val;
+
+	if (__builtin_add_overflow(index, extent, &end)) {
+		val = 0;
+	} else {
+		/* NB: don't assume end's value
+		   forces actual computation of mask */
+		__asm__ ("" : "=r" (end) : "0" (end));
+		/* NB: this needs to be a branchless computation,
+		   GCC/Clang compute this without emitting a branch but other
+		   compilers may not
+		*/
+		val = (end <= size);
+	}
+
+	index &= ((size_t) 0) - val;
+	return index;
+}
 
 #ifdef __cplusplus
 }
